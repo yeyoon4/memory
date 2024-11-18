@@ -1,0 +1,77 @@
+# Template config, need to change dump_dir, data.root_dir and data.tokenizer.path
+
+# dump_dir: !!CHANGETHIS!!
+name: "373_dense"
+steps: 128_000
+probe_freq: null
+seed: 777
+optim:
+    lr: 1e-4
+    warmup: 4000
+    lr_min_ratio: 0.01
+    clip: 1.0
+    scheduler: linear
+    annealing_step: 10000
+
+distributed:
+    fsdp_type: full_shard
+    compile: false # needed if memory_parallel_size > 1
+    model_dtype: bf16
+    matmul_allow_tf32: false
+    selective_activation_checkpointing: false
+    tp_size: 1
+    memory_parallel_size: 1
+
+model:
+    dim: 1024
+    n_layers:  24
+    n_heads: 16
+    rope_theta: 500000.0
+    productkey_args: 
+        is_enabled: False # True
+        layers:  "4,12,20"
+        mem_share_values: True
+        mem_n_keys: 1024
+        value_fixed_lr: 0.001
+        swilu_projection: True
+        mem_k_dim: 512
+
+data:
+    root_dir: data/shuffled
+    sources:
+        dclm_baseline_1.0: 100.0
+    batch_size: 8
+    prefetch_size: 64
+    seq_len: 4096
+    n_views: 2
+    load_async: true
+    tokenizer:
+        name: sp # for SentencePiece
+        path: !!CHANGETHIS!!
+
+profiling:
+    run: true
+
+checkpoint:
+    dump:
+        every: 10000
+        keep: 1
+    eval:
+        every: 128_000
+        keep: 1
+
+logging:
+    freq: 10
+
+eval:
+    generator:
+        max_tokens: 8192
+        dtype: bf16
+        temperature: 1.0
+        top_p: 0.95
+    harness:
+        tasks:
+            - hellaswag
+            - piqa
+            - task: nq_open
+              num_fewshot: 5
