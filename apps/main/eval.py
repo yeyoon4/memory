@@ -129,6 +129,7 @@ class EvalHarnessLM(LM):
         max_gen_len = self.generator.max_gen_len
         # We temporarily lower max gen len
         self.generator.max_gen_len = 1
+        # torch.cuda.empty_cache()
         _, lls, greedy = self.generator.generate(inputs)
         results = []
         for p, ll, gr in zip(prompts, lls, greedy):

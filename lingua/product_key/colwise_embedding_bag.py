@@ -32,15 +32,17 @@ class xFormerEmbeddingBag(nn.Module):
         self.weight = nn.Parameter(torch.randn(size, dim, dtype=torch.bfloat16))
 
     def forward(self, indices, scores):
-        if isinstance(self.weight, DTensor):
+        if isinstance(self.weight, DTensor): # self.weight이 DTensor인지 확인 -> GPU 2개 이상일 때
             weight = self.weight.to_local()
             num_shards = self.weight.device_mesh.size()
+            print("num_shards: ", num_shards)
             if num_shards > 1:
                 # scale gradients so that we end up with the average rather than sum
                 grad_scale = 1 / num_shards
                 weight = weight * grad_scale + (weight * (1-grad_scale)).detach()
         else:
             weight = self.weight
+            print("No DTensor") 
         # output = F.embedding_bag(indices, weight, per_sample_weights=scores, mode="sum")
         output = xformers_embedding_bag(
             indices, weight, per_sample_weights=scores, mode="sum"

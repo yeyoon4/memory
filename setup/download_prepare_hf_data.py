@@ -75,7 +75,7 @@ def setup_terashuf(work_dir):
     return terashuf_dir
 
 
-def main(dataset, memory, data_dir, seed=42):
+def main(dataset, memory, data_dir, seed=42): # fineweb_edu_10bt
     # Configuration
     repo_id = {
         "fineweb_edu": "HuggingFaceFW/fineweb-edu",
@@ -83,8 +83,8 @@ def main(dataset, memory, data_dir, seed=42):
         "dclm_baseline_1.0": "mlfoundations/dclm-baseline-1.0",
         "dclm_baseline_1.0_10prct": "mlfoundations/dclm-baseline-1.0",
     }[dataset]
-    src_dir = f"{data_dir}/{dataset}"
-    out_dir = f"{src_dir}_shuffled"
+    src_dir = f"{data_dir}/{dataset}" # data/fineweb_edu_10bt 
+    out_dir = f"{src_dir}_shuffled" # data/fineweb_edu_10bt_shuffled
     os.makedirs(out_dir, exist_ok=True)
     work_dir = src_dir  # Directory of this Python file
     prefix = f"{dataset}.chunk."
@@ -114,21 +114,22 @@ def main(dataset, memory, data_dir, seed=42):
     terashuf_dir = setup_terashuf(work_dir)
 
     # Download dataset
-    download_dataset(repo_id, src_dir, allow_patterns)
+    # download_dataset(repo_id, src_dir, allow_patterns)
 
-    if "fineweb" in dataset:
-        parquet_to_jsonl(dataset, work_dir, src_dir, src_dir)
+    # if "fineweb" in dataset:
+    #     parquet_to_jsonl(dataset, work_dir, src_dir, src_dir)
 
     # Set up environment variables
     os.environ["MEMORY"] = f"{memory}"
     os.environ["SEED"] = f"{seed}"
 
+    # 여기서 문제!!!!!!!!!!!!!!!!!!!
     # Run the original shuffling and splitting command
     terashuf_executable = os.path.join(terashuf_dir, "terashuf")
     run_command(
-        f"ulimit -n 100000 && "
+        f"ulimit -n 100000 && " # src_dir = data/fineweb_edu_10bt # orig_extension = .jsonl
         f"find {src_dir} -type f -name '*{orig_extension}' -print0 | xargs -0 {cat_command} | {terashuf_executable} | "
-        f"split -n r/{nchunks} -d --suffix-length 2 --additional-suffix {suffix} - {out_dir}/{prefix}"
+        f"split -n r/{nchunks} -d --suffix-length 2 --additional-suffix {suffix} - {out_dir}/{prefix}" # prefix = fineweb_edu_10bt.chunk.
         "; trap 'echo \"Caught signal 13, exiting with code 1\"; exit 1' SIGPIPE;"
     )
 

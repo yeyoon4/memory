@@ -4,6 +4,10 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Optional, Union, Tuple
 
+import time
+from timeit import default_timer as timer
+
+
 import torch
 from torch import nn
 from torch.nn import functional as F
@@ -209,7 +213,17 @@ def generate_doc_mask_mod(
     kv_max_idx = kv_lengths.sum() - 1
 
     def doc_mask_mod(b, h, q_idx, kv_idx):
-        q_idx_cap = torch.minimum(q_max_idx, q_idx)
+        if q_idx is None or q_idx.numel() == 0:
+            print("q_idx가 None이거나 비어 있습니다. 입력 데이터를 확인하세요.")
+        # else:
+        #     print("q_idx", q_idx)
+        if q_max_idx.numel() == 0:
+            print("q_max_idx가 비어 있습니다. 입력 데이터를 확인하세요.")
+        # else:
+        #     print("q_max_idx", q_max_idx)
+        
+
+        q_idx_cap = torch.minimum(q_max_idx, q_idx) # q_idx와 q_max_idx 중 작은 값을 선택   
         kv_idx_cap = torch.minimum(kv_max_idx, kv_idx)
         valid_idx = (q_idx <= q_max_idx) & (kv_idx <= kv_max_idx)
         same_doc = q_document_id[q_idx_cap] == kv_document_id[kv_idx_cap]
@@ -501,7 +515,8 @@ class TransformerBlock(nn.Module):
             rope_theta=args.rope_theta,
         )
         pk_layers = [int(s) for s in args.productkey_args.layers.split(",") if len(s)>0]
-        if args.productkey_args.is_enabled and layer in pk_layers:
+        self.use_hashing_memory = args.productkey_args.is_enabled and layer in pk_layers
+        if self.use_hashing_memory:
             self.feed_forward = HashingMemory(
                 input_dim = args.dim,
                 output_dim = args.dim,
@@ -534,7 +549,7 @@ class TransformerBlock(nn.Module):
         mask: Optional[Union[BlockMask, AttentionBias, str]] = None,
         attn_impl: str = "sdpa",
     ) -> torch.Tensor:
-
+        
         h = x + self.attention(
             self.attention_norm(x),
             freq_cis,
@@ -578,7 +593,7 @@ class BaseTransformer(nn.Module):
         attn_impl: str = "sdpa",
     ):
 
-        freq_cis = self.rope_embeddings(seqlen=self.max_seqlen, tok_idx=tok_idx)
+        freq_cis = self.rope_embeddings(seqlen=self.max_seqlen, tok_idx=tok_idx) # rope embedding을 거친 값
 
         for i, layer in enumerate(self.layers):
             h = layer(h, freq_cis, tok_idx=tok_idx, mask=mask, attn_impl=attn_impl)

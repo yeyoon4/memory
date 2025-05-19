@@ -46,6 +46,7 @@ class HashingMemory(nn.Module):
 
     VALUES = None
     EVAL_MEMORY = True
+    tokenizer_time = False
 
     def __init__(
         self,
@@ -104,7 +105,7 @@ class HashingMemory(nn.Module):
 
         # global parameters
         self.input_dim = input_dim
-        self.output_dim = output_dim
+        self.output_dim = output_dim # 512
         # number of indices / entries in the memory
         self.size = mem_n_keys**2
         self.k_dim = mem_k_dim
@@ -128,12 +129,13 @@ class HashingMemory(nn.Module):
         )
 
         # optionally use the same values for all memories
-        self.mem_share_values = mem_share_values
+        self.mem_share_values = mem_share_values # pkplus_373m_1024k: True
+        # print("HasingMemory.VALUES", HashingMemory.VALUES)
 
-        self.original = not self.mem_share_values or HashingMemory.VALUES is None
-
+        self.original = not self.mem_share_values or HashingMemory.VALUES is None # False or [] = True
+        # print("self.original", self.original)
         # initialize the values
-        if self.original:
+        if self.original or HashingMemory.tokenizer_time:
             if not self.use_peer_variant:  # PK
                 self.values = xFormerEmbeddingBag(self.size, self.v_dim)
                 HashingMemory.VALUES = self.values
@@ -143,7 +145,8 @@ class HashingMemory(nn.Module):
                 HashingMemory.VALUES = self.values_u, self.values_v
         else:
             if not self.use_peer_variant:  # PK
-                self.values = None
+                # self.values = None
+                self.values = HashingMemory.VALUES # eval.yaml 돌릴 때만! 평소에는 None
             else:  # PEER
                 self.values_u = None
                 self.values_v = None
@@ -173,8 +176,13 @@ class HashingMemory(nn.Module):
             bias=mem_query_bias,
             batchnorm=mem_query_batchnorm,
         )
+        print("self.size", self.size)
+        print("self.k_dim", self.k_dim)
+        print("self.v_dim", self.v_dim)
+        print("self.heads", self.heads)
+        print("self.knn", self.knn)
 
-    def mp_parallelize(self, mesh, model_args, distributed_args, param_dtype):
+    def mp_parallelize(self, mesh, model_args, distributed_args, param_dtype, index):
         fsdp_config = dict(
             mp_policy=(
                 MixedPrecisionPolicy(
@@ -205,7 +213,7 @@ class HashingMemory(nn.Module):
                     self.values, **fsdp_config, reshard_after_forward=False
                 )
             else:
-                self.values_u = fully_shard(
+                self.values_u = fully_shard( 
                     self.values_u, **fsdp_config, reshard_after_forward=False
                 )
                 self.values_v = fully_shard(
@@ -221,6 +229,9 @@ class HashingMemory(nn.Module):
                 self.values = HashingMemory.VALUES
             else:
                 self.values_u, self.values_v = HashingMemory.VALUES
+        if index == 20:
+            HashingMemory.VALUES = None
+            HashingMemory.tokenizer_time = True
 
     def reset_parameters(self, init_std=None, factor=1.0):
         # keys
@@ -263,14 +274,14 @@ class HashingMemory(nn.Module):
         Read from the memory.
         """
         B, T, C = input.shape
-        input = input.view(-1, self.input_dim)
+        input = input.view(-1, self.input_dim) # 
 
         # input dimensions
-        assert input.shape[-1] == self.input_dim
-        prefix_shape = input.shape[:-1]
+        assert input.shape[-1] == self.input_dim 
+        prefix_shape = input.shape[:-1] # 마지막 차원 제외한 차원들의 shape
 
         # compute query / store it
-        bs = np.prod(prefix_shape)
+        bs = np.prod(prefix_shape) # batch size
         input = F.dropout(
             input, p=self.input_dropout, training=self.training
         )  # input shape
@@ -282,7 +293,8 @@ class HashingMemory(nn.Module):
 
         # get indices
         knn = self.knn
-        scores, indices = self.get_indices(query, knn)  # (bs * heads, knn) ** 2
+        scores, indices = self.get_indices(query, knn)  # (bs * heads, knn) ** 2 
+        # knn = 32
 
         # store indices / scores (eval mode only - for usage statistics)
         if not self.training and HashingMemory.EVAL_MEMORY:
@@ -294,13 +306,17 @@ class HashingMemory(nn.Module):
 
         # merge heads / knn (since we sum heads)
         indices = indices.view(bs, self.heads * knn)  # (bs, heads * knn)
+        # print("indices", indices.shape)
         scores = scores.view(bs, self.heads * knn)  # (bs, heads * knn)
-
+        # print("scores", scores.shape)
         if not self.use_peer_variant:
+            # index 일부만 출력해보기
+            # print("indices", indices[0][:10])
+            # print("values", self.values.shape)
             output = self.values(indices, scores)  # (bs, v_dim)
-            if self.v_proj and not self.swilu_proj:
+            if self.v_proj and not self.swilu_proj: # pkplus_373m_1024k: swilu_proj is True -> 이 부분 실행 안됨
                 output = self.value_proj(output)
-            if self.swilu_proj:
+            if self.swilu_proj: # 이 부분 실행됨
                 output = self.value_proj(output * F.silu(self.swilu_projection(input)))
         else:
             u = self.values_u(indices)
@@ -322,7 +338,7 @@ class HashingMemory(nn.Module):
         if len(prefix_shape) >= 2:
             output = output.view(prefix_shape + (self.v_dim,))  # (..., v_dim)
 
-        if self.gating:
+        if self.gating: # False
             output = F.sigmoid(self.gating(input)) * output
         output = output.view(B, T, -1)
         return output
@@ -332,12 +348,18 @@ class HashingMemory(nn.Module):
         bs = len(query) // self.heads
         query = query.view(-1, self.heads, self.k_dim)
         half = self.k_dim // 2
-        # keys : (heads, 2, n_keys, half)
+        # keys : (heads, 2, n_keys, half) -> heads * 2 * n_keys = 
         # keys1 : (heads, n_keys, half)
+        
+        
         keys = self.keys.view(self.heads, 2, -1, half)
+        # print("self.keys", self.keys.shape)
+        # print("keys", keys.shape)
         keys1 = keys[:, 0, :, :]
+        # print("keys1", keys1.shape)
         keys2 = keys[:, 1, :, :]
         n_keys = len(keys[0][0])
+        # print("n_keys", n_keys)
 
         # split query for product quantization
         q1 = query[:, :, :half]  # (bs, heads, half)
@@ -350,9 +372,12 @@ class HashingMemory(nn.Module):
         scores2 = torch.einsum(
             "blh, lkh->blk", q2, keys2
         )  # (bs , heads, n_keys ** 0,5)
+        # print("scores1", scores1.shape)
 
         scores1, indices1 = scores1.topk(knn, dim=2, largest=True)  # (bs, heads, knn)
+        # print("scores1", scores1.shape)
         scores2, indices2 = scores2.topk(knn, dim=2, largest=True)  # (bs, heads, knn)
+        # topk(32, dim=2, largest=True) -> (bs, heads, knn)
 
         # cartesian product on best candidate keys
         all_scores = (

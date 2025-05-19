@@ -25,14 +25,16 @@ env_prefix=lingua_$current_date
 
 # Create the conda environment
 
-source $CONDA_ROOT/etc/profile.d/conda.sh
+source /home/yoon/miniconda3/etc/profile.d/conda.sh
 conda create -n $env_prefix python=3.11 -y -c anaconda
 conda activate $env_prefix
 
 echo "Currently in env $(which python)"
 
 # Install packages
-pip install torch==2.5.0 xformers --index-url https://download.pytorch.org/whl/cu121
+pip install torch==2.5.0 --index-url https://download.pytorch.org/whl/cu121
+# pip install torch==2.5.0 --index-url https://download.pytorch.org/whl/cu121
+# pip install xformers --index-url https://download.pytorch.org/whl/cu121
 pip install ninja
 pip install --requirement requirements.txt
 

@@ -70,6 +70,8 @@ from lingua.stool import StoolArgs, launch_job
 
 import wandb
 
+# import torch.autograd.profiler as profiler
+from torch.profiler import profile, record_function, ProfilerActivity
 logger = logging.getLogger()
 
 
@@ -217,6 +219,103 @@ def every_n_steps(train_state, freq, acc_step=None, acc_freq=None):
         test = test and ((train_state.acc_step % acc_freq) == 0)
     return test
 
+forward_times = {}
+backward_times = {}
+
+# layer 단위로
+# def forward_pre_hook(module, input):
+#     forward_times[module] = time.time()
+
+# def forward_post_hook(module, input, output):
+#     forward_times[module] = time.time() - forward_times[module]
+#     print(f"{module} forward time: {forward_times[module]}")
+
+# def backward_pre_hook(module, grad_output):
+#     backward_times[module] = time.time()
+
+# def backward_hook(module, grad_input, grad_output):
+#     backward_times[module] = time.time() - backward_times[module]
+#     print(f"{module} backward time: {backward_times[module]}")
+
+# def register_hooks(model):
+#     for name, layer in model.named_children():  # 한 단계 아래의 레이어만 가져옴
+#             layer.register_forward_pre_hook(forward_pre_hook)
+#             layer.register_forward_hook(forward_post_hook)
+#             layer.register_full_backward_pre_hook(backward_pre_hook)
+#             layer.register_full_backward_hook(backward_hook)
+
+
+# architecture까지!
+# def forward_pre_hook(module, input):
+#     forward_times[module] = time.time()
+
+# def forward_post_hook(module, input, output):
+#     forward_times[module] = time.time() - forward_times[module]
+#     print(f"{module} forward time: {forward_times[module]}")
+
+# def backward_pre_hook(module, grad_output):
+#     backward_times[module] = time.time()
+
+# def backward_hook(module, grad_input, grad_output):
+#     backward_times[module] = time.time() - backward_times[module]
+#     print(f"{module} backward time: {backward_times[module]}")
+
+# def register_hooks(model):
+#     for name, module in model.named_modules():
+#         module.register_forward_pre_hook(forward_pre_hook)
+#         module.register_forward_hook(forward_post_hook)
+#         module.register_full_backward_pre_hook(backward_pre_hook)
+#         module.register_full_backward_hook(backward_hook)
+
+# 시간만!
+# def forward_pre_hook(module, input):
+#     forward_times[id(module)] = time.time()
+
+# def forward_post_hook(module, input, output):
+#     elapsed_time = time.time() - forward_times[id(module)]
+#     forward_times[id(module)] = elapsed_time
+#     print(f"{module.__class__.__name__} forward time: {elapsed_time:.6f} sec")
+
+# def backward_pre_hook(module, grad_output):
+#     backward_times[id(module)] = time.time()
+
+# def backward_hook(module, grad_input, grad_output):
+#     elapsed_time = time.time() - backward_times[id(module)]
+#     backward_times[id(module)] = elapsed_time
+#     print(f"{module.__class__.__name__} backward time: {elapsed_time:.6f} sec")
+
+# def register_hooks(model):
+#     for name, module in model.named_modules():
+#         if isinstance(module, torch.nn.Module):  # nn.Module만 Hook 적용
+#             module.register_forward_pre_hook(forward_pre_hook)
+#             module.register_forward_hook(forward_post_hook)
+#             module.register_full_backward_pre_hook(backward_pre_hook)
+#             module.register_full_backward_hook(backward_hook)
+
+# 시작 시간 기록 + 종료 시간 기록
+def forward_pre_hook(module, input):
+    forward_times[id(module)] = time.time()
+
+def forward_post_hook(module, input, output):
+    elapsed_time = time.time() - forward_times[id(module)]
+    forward_times[id(module)] = elapsed_time
+    print(f"{module.__class__.__name__} forward time: {elapsed_time:.6f} sec")
+
+def backward_pre_hook(module, grad_output):
+    backward_times[id(module)] = time.time()
+
+def backward_hook(module, grad_input, grad_output):
+    elapsed_time = time.time() - backward_times[id(module)]
+    backward_times[id(module)] = elapsed_time
+    print(f"{module.__class__.__name__} backward time: {elapsed_time:.6f} sec")
+
+def register_hooks(model):
+    for name, module in model.named_modules():
+        if isinstance(module, torch.nn.Module):  # nn.Module만 Hook 적용
+            module.register_forward_pre_hook(forward_pre_hook)
+            module.register_forward_hook(forward_post_hook)
+            module.register_full_backward_pre_hook(backward_pre_hook)
+            module.register_full_backward_hook(backward_hook)
 
 def train(args: TrainArgs):
     with ExitStack() as context_stack:
@@ -253,6 +352,8 @@ def train(args: TrainArgs):
         # Initializing Model in meta device allows us to initialize models much bigger than 1 gpu's memory
         with torch.device("meta"):
             model = LMTransformer(args.model)
+            register_hooks(model)
+
         logger.info("Model is built !")
 
         model_param_count = get_num_params(model)
@@ -380,6 +481,7 @@ def train(args: TrainArgs):
             # of all linears' inputs, weights and outputs
             # along with attention logits and entropy
             # both in forward and backward pass
+            # args.probe_freq is NULL -> 이 부분 실행 안됨
             if (args.probe_freq is not None) and every_n_steps(
                 train_state, args.probe_freq, acc_step=1 % args.grad_acc_steps
             ):
@@ -413,7 +515,6 @@ def train(args: TrainArgs):
                 ), "Probe model shouldn't have grads at this point"
 
             loss = model(input_ids, labels)
-
             # We scale loss with grad_acc_steps so the gradient is the same
             # regardless of grad_acc_steps
             loss = loss / args.grad_acc_steps
@@ -502,6 +603,11 @@ def train(args: TrainArgs):
                             "total_tokens": total_tokens,
                         },
                         "memory": gpu_mem_stats._asdict(),
+                        # "time": {
+                        #     "memory_layer_time": memory_layer_time,
+                        #     "FFN_time": FFN_time,
+                        #     "backward_time": backward_time,
+                        # },
                     },
                     sep="/",
                 )
@@ -653,7 +759,6 @@ def main():
     cfg = OmegaConf.to_object(cfg)
 
     train(cfg)
-
 
 if __name__ == "__main__":
     main()

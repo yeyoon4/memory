@@ -412,7 +412,7 @@ class xFormersEmbeddingBag(torch.autograd.Function):
         indices: torch.Tensor,
         weight: torch.Tensor,
         per_sample_weights: torch.Tensor,
-        bw_algo: bool,
+        bw_algo: bool, # backward algorithm
     ) -> torch.Tensor:
         ctx.save_for_backward(indices, weight, per_sample_weights)
         ctx.bw_algo = bw_algo

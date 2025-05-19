@@ -95,23 +95,23 @@ class LMTransformer(BaseTransformer):
 
     def forward(
         self,
-        token_values: torch.Tensor,
-        target: Optional[torch.Tensor] = None,
+        token_values: torch.Tensor, # input_ids
+        target: Optional[torch.Tensor] = None, # label
         tok_idx: Optional[torch.Tensor] = None,
         mask: Optional[Union[BlockMask, AttentionBias, torch.Tensor, str]] = None,
         attn_impl: str = "sdpa",
     ):
         bsz, seqlen = token_values.shape
 
-        h = self.tok_embeddings(token_values)
+        h = self.tok_embeddings(token_values) # 임베딩 거쳐서 h로 변환
 
-        mask = (
+        mask = ( # mask가 주어지지 않으면 create_causal_mask로 mask 생성
             mask
             if mask is not None
             else create_causal_mask(seqlen, attn_impl, self.sliding_window)
         )
 
-        h = super().forward(h, tok_idx=tok_idx, mask=mask, attn_impl=attn_impl)
+        h = super().forward(h, tok_idx=tok_idx, mask=mask, attn_impl=attn_impl) # 부모 클래스의 forward 호출
 
         logits = self.output(self.norm(h))
         if target is not None:

@@ -16,6 +16,7 @@ import tempfile
 from dataclasses import asdict, dataclass
 from functools import lru_cache, partial, reduce
 from typing import List, Optional, Tuple, Union
+import time
 
 import torch
 from torch.distributed import ReduceOp
@@ -43,7 +44,7 @@ default_no_recompute_ops = {
     torch.ops.aten._scaled_dot_product_efficient_attention.default,
     torch.ops.aten._scaled_dot_product_flash_attention.default,
     torch.ops.c10d_functional.reduce_scatter_tensor.default,
-    torch.ops.xformers_flash.flash_fwd.default,
+    # torch.ops.xformers_flash.flash_fwd.default,
     torch.ops.xformers.efficient_attention_forward_cutlass.default,
 }
 
@@ -383,7 +384,7 @@ def clean_env():
 def parallelize_model(
     model,
     device_mesh,
-    model_args,
+    model_args, # model_args.
     distributed_args: DistributedArgs,
     fsdp_grouping_plan: Optional[List[Tuple[str, bool]]] = None,
     tp_parallelize=None,
@@ -403,8 +404,8 @@ def parallelize_model(
     if distributed_args.float8_recipe is not None:
         if distributed_args.tp_size > 1:
             raise RuntimeError("float8 is incompatible with tensor-parallelism for now")
-        model = convert_linears_to_fp8(
-            model, distributed_args.float8_recipe, distributed_args.float8_filter
+        model = convert_linears_to_fp8( # root_module: torch.nn.Module, recipe: str, filter: str
+            model, distributed_args.float8_recipe, distributed_args.float8_filter # 
         )
 
     param_dtype = dict(fp32=torch.float32, fp16=torch.float16, bf16=torch.bfloat16)[
@@ -415,14 +416,16 @@ def parallelize_model(
         assert distributed_args.tp_size == 1
         assert distributed_args.dp_shard == 1
         memory_mesh_names = ["dp_replicate", "memory_parallel"]
-        n_mem_replicate = distributed_args.dp_replicate // distributed_args.memory_parallel_size
-        memory_mesh_shape = [n_mem_replicate, distributed_args.memory_parallel_size]
+        n_mem_replicate = distributed_args.dp_replicate // distributed_args.memory_parallel_size # dp_replicate = 1 // 1 =1
+        memory_mesh_shape = [n_mem_replicate, distributed_args.memory_parallel_size]  # [1, 1]
         memory_mesh = init_device_mesh("cuda", mesh_shape=memory_mesh_shape, mesh_dim_names=memory_mesh_names)
     else:
         memory_mesh = device_mesh["dp_replicate"]
-    for layer in model.layers:
+    for index, layer in enumerate(model.layers):
         if hasattr(layer.feed_forward, "mp_parallelize"):
-            layer.feed_forward.mp_parallelize(memory_mesh, model_args, distributed_args, param_dtype)
+            # print(f"index: {index}, time: {time.time()}")
+            layer.feed_forward.mp_parallelize(memory_mesh, model_args, distributed_args, param_dtype, index)
+            # print(f"index: {index}, time: {time.time()}")
 
     if (
         distributed_args.fsdp_type == "full_shard"

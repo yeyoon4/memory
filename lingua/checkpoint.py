@@ -275,10 +275,21 @@ class CheckpointManager:
             model=model,
             optimizer=optimizer,
         )
+
+        # # layers.12.feed_forward.values.weight 앞에 _orig_mod 붙여주기
+        # modified_state_dict = {}
+        # for key, value in state_dict["model"].items():
+        #     if "layers.12.feed_forward.values.weight" in key or "layers.20.feed_forward.values.weight" in key:
+        #         modified_state_dict[f"_orig_mod.{key}"] = value
+        #     else:
+        #         modified_state_dict[key] = value
+
+        # state_dict["model"] = modified_state_dict
+        # # logger.info(state_dict)
         dcp.load(state_dict, checkpoint_id=path)
         logger.info("State dict loaded.")
 
-        logger.info("Reloading model and optim")
+        logger.info("Reloading model and optim")        
 
         set_state_dict(
             model,

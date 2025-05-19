@@ -71,9 +71,9 @@ def pack_prompts(prompts: List[int]):
         l = p.size(0)
         res.append(p)
         lengths.append(l)
-    lengths = torch.tensor(lengths, dtype=torch.long)
-    res = torch.cat(res)
-    return res, lengths
+    lengths = torch.tensor(lengths, dtype=torch.long) # promtps의 각 문장의 길이를 tensor로 변환
+    res = torch.cat(res) # prompts의 문장들을 하나의 tensor로 합침
+    return res, lengths 
 
 
 def batch_prompts(prompts, max_elements, lengths=None):
@@ -406,17 +406,17 @@ def load_consolidated_model_and_tokenizer(
     model_args_cls=LMTransformerArgs,
 ):
     ckpt_path = Path(consolidated_path)
-    config = ckpt_path / "params.json"
-    config = OmegaConf.load(config)
+    config = ckpt_path / "params.json" 
+    config = OmegaConf.load(config) 
 
     param_dtype = dict(fp32=torch.float32, fp16=torch.float16, bf16=torch.bfloat16)[
-        config.distributed.model_dtype
+        config.distributed.model_dtype 
     ]
     model_args = dataclass_from_dict(model_args_cls, config.model, strict=False)
     tokenizer = build_tokenizer(config.data.tokenizer.name, config.data.tokenizer.path)
-    model = model_cls(model_args)
-    st_dict = torch.load(ckpt_path / CONSOLIDATE_NAME, weights_only=True)
-    model.load_state_dict(st_dict["model"])
+    model = model_cls(model_args) #
+    st_dict = torch.load(ckpt_path / CONSOLIDATE_NAME, weights_only=True) # 학습한 모델의 state dict 불러옴
+    model.load_state_dict(st_dict["model"])  # 학습한 모델의 state dict를 모델에 덮어씀
     model = model.cuda().eval()
     for param in model.parameters():
         param.data = param.data.to(dtype=param_dtype)
